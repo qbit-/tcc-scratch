@@ -4,15 +4,24 @@ import pickle
 from pyscf.lib import logger
 from pyscf import scf
 from tcc.hubbard import hubbard_from_scf
-from tcc.cc_solvers import (classic_solver, root_solver)
+from tcc.cc_solvers import (classic_solver, residual_diis_solver)
 from tcc.rccsd import RCCSD_UNIT
-from tcc.rccsd_cpd import (RCCSD_CPD_LS_T, RCCSD_nCPD_LS_T)
-
+from tcc.rccsd_cpd import (RCCSD_CPD_LS_T,
+                           RCCSD_nCPD_LS_T)
 
 # Set up parameters of the script
-BASIS = 'sto-3g'
-DISTANCES = np.linspace(0.8, 2.7, num=15)
-RANKS_T = np.array([2, 4, 5, 6, 8]).astype('int')
+# BASIS = 'sto-3g'
+# DISTS = np.linspace(0.8, 2.4, num=25)
+# LAMBDAS = [3, ] * 10 + [4, ] * 0 + [6, ] * 10 + [6, ] * 5
+# RANKS_T = np.array([2, 4, 5, 6, 8]).astype('int')
+
+BASIS = 'cc-pvdz'
+DISTS = np.linspace(0.8, 2.4, num=25)
+LAMBDAS = [3, ] * 10 + [4, ] * 0 + [6, ] * 10 + [6, ] * 5
+RANKS_T = np.array([2, 3, 4, 5, 6, 8, 40]).astype('int')
+
+DISTS_REFERENCE = np.linspace(0.8, 2.75, num=30)
+LAMBDAS_REFERENCE = [3, ] * 10 + [4, ] * 5 + [6, ] * 10 + [6, ] * 5
 
 
 def run_scfs(mols, filename):
@@ -42,8 +51,8 @@ def calc_energy_vs_d_cpd():
     # Set up parameters of the script
 
     basis = BASIS
-    dists = DISTANCES.copy()
-    lambdas = [3, ] * 6 + [5, ] * 6 + [6, ] * 3
+    dists = DISTS.copy()
+    lambdas = LAMBDAS.copy()
     rankst = RANKS_T.copy()
 
     def make_mol(dist):
@@ -67,7 +76,7 @@ def calc_energy_vs_d_cpd():
         ref_scfs = pickle.load(fp)
 
     for idxr, rank in enumerate(rankst):
-        lambdas = [3, ] * 6 + [4, ] * 0 + [6, ] * 6 + [6, ] * 3
+        lambdas = LAMBDAS.copy()
 
         energies = []
         converged = False
@@ -87,7 +96,7 @@ def calc_energy_vs_d_cpd():
             converged, energy, amps = classic_solver(
                 cc, lam=lambdas[idxd], conv_tol_energy=1e-8,
                 conv_tol_amps=1e-7, max_cycle=30000,
-                verbose=logger.NOTE)
+                verbose=logger.NOTE, amps=amps)
 
             if not converged:
                 Warning(
@@ -131,7 +140,6 @@ def plot_energy_vs_d_cpd():
     import matplotlib as mpl
     from matplotlib import pyplot as plt
 
-    # Set up parameters of the script
     basis = BASIS
     rankst = RANKS_T.copy()
 
@@ -145,13 +153,13 @@ def plot_energy_vs_d_cpd():
     colors = cmap(np.linspace(0, 1, len(rankst)))
     fig, ax = plt.subplots()
 
-    rankst = rankst[:4]  # Cut out some elements
+    rankst = rankst  # Cut out some elements
 
     for idxr, (rank, color) in enumerate(zip(rankst, colors)):
         ax.plot(us, energies_l[idxr],
                 color=color, marker=None)
     d_ref, e_ref = np.loadtxt(
-        'reference/{}/FCI_all_el.txt'.format(basis), unpack=True)
+        'reference/{}/FCI.txt'.format(basis), unpack=True)
     ax.plot(d_ref, e_ref,
             color='k', marker=None)
 
@@ -163,8 +171,8 @@ def plot_energy_vs_d_cpd():
     plt.xlabel('$D, \AA$')
     plt.ylabel('$E$, H')
     plt.title('Energy behavior for different ranks, $N_2$ ({})'.format(basis))
-    plt.ylim(-107.75, -107.2)
-    plt.xlim(0.8, 2.2)
+    # plt.ylim(-107.75, -107.2)  # sto-3g
+    # plt.xlim(0.8, 2.2)
     plt.legend(
         ['R={}'.format(rank) for rank in rankst] + ['Exact', ] + ['RCCSD', ],
         loc='upper left'
@@ -172,6 +180,67 @@ def plot_energy_vs_d_cpd():
     fig.show()
 
     fig.savefig('figures/energy_vs_d_{}.eps'.format(basis))
+
+
+def run_ccsd():
+    basis = BASIS
+    dists = DISTS_REFERENCE.copy()
+    lambdas = LAMBDAS_REFERENCE.copy()
+
+    def make_mol(dist):
+        from pyscf import gto
+        mol = gto.Mole()
+        mol.atom = [
+            [7, (0., 0., 0.)],
+            [7, (0., 0., dist)]]
+
+        mol.basis = {'N': basis}
+        mol.build()
+        return mol
+
+    mols = [make_mol(dist) for dist in dists]
+
+    # Run all scfs here so we will have same starting points for CC
+    run_scfs(mols, 'reference/{}/scfs_different_dist.p'.format(basis))
+    with open('reference/{}/scfs_different_dist.p'.format(basis), 'rb') as fp:
+        ref_scfs = pickle.load(fp)
+
+    from tcc.rccsd_mul import RCCSD_MUL_RI
+    energies = []
+    amps = None
+    for idxd, (dist, curr_scf) in enumerate(zip(dists, ref_scfs)):
+        tim = time.process_time()
+        rhf = scf.density_fit(scf.RHF(mols[idxd]))
+        rhf.max_cycle = 1
+        rhf.scf()
+        e_scf, mo_coeff, mo_energy = curr_scf
+        cc = RCCSD_MUL_RI(rhf,
+                          mo_coeff=mo_coeff,
+                          mo_energy=mo_energy)
+        converged, energy, amps = residual_diis_solver(
+            cc, conv_tol_energy=1e-9, conv_tol_res=1e-8,
+            max_cycle=500,
+            verbose=logger.NOTE, amps=amps)
+
+        energies.append(energy + e_scf)
+        elapsed = time.process_time() - tim
+        print('Step {} out of {}, dist = {}, time: {}\n'.format(
+            idxd + 1, len(dists), dist, elapsed
+        ))
+    np.savetxt(
+        'reference/{}/RCCSD.txt'.format(basis),
+        np.column_stack((dists, energies)),
+        header='U E_total'
+    )
+
+    # Plot
+    from matplotlib import pyplot as plt
+    fig, ax = plt.subplots()
+    plt.plot(dists, energies)
+    plt.xlabel('$D, \AA$')
+    plt.ylabel('$E$, H')
+    plt.title('Energy in RCCSD (RI)')
+    fig.show()
 
 
 if __name__ == '__main__':
