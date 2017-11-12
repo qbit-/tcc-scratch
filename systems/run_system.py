@@ -1,4 +1,4 @@
-#!/usr/bin/python3.6
+#!/projects/guscus/apps-python/python3/3.6.2/inst/bin/python3.6
 """
 These scripts are for running molecular systems
 with RCCSD-CPD
@@ -78,7 +78,7 @@ def run_cc_ref(workdir):
     rhf.scf()
 
     # Run RCCSD_RI
-    from tcc.rccsd_mul import RCCSD_MUL_RI
+    from tcc.rccsd import RCCSD_DIR_RI
     from tcc.cc_solvers import residual_diis_solver
 
     tim = time.process_time()
@@ -86,7 +86,7 @@ def run_cc_ref(workdir):
     if (not isfile(workdir + 'ccsd_results.p')
             or not isfile(workdir + 'RCCSD.txt')):
 
-        cc = RCCSD_MUL_RI(rhf,
+        cc = RCCSD_DIR_RI(rhf,
                           mo_coeff=mo_coeff,
                           mo_energy=mo_energy)
 
@@ -132,7 +132,7 @@ def run_cc_cpd(workdir):
 
     # Get CCSD results to generate initial guess
 
-    with open(workdir + 'ccsd_results.p', 'wb') as fp:
+    with open(workdir + 'ccsd_results.p', 'rb') as fp:
         energy_ref, amps_ref = pickle.load(fp)
 
     # Run RCCSD_RI_CPD
@@ -156,15 +156,15 @@ def run_cc_cpd(workdir):
                                  mo_energy=mo_energy)
             # Initial guess
             t2x = als_dense(
-                ncpd_initialize(amps_ref.shape, rank),
-                amps_ref, max_cycle=100, tensor_format='ncpd'
+                ncpd_initialize(amps_ref.t2.shape, rank),
+                amps_ref.t2, max_cycle=100, tensor_format='ncpd'
             )
             t2names = ['xlam', 'x1', 'x2', 'x3', 'x4']
             amps_guess = Tensors(t1=amps_ref.t1,
                                  t2=Tensors(zip(t2names, t2x)))
 
             converged, energy, amps = classic_solver(
-                cc, conv_tol_energy=1e-9, conv_tol_res=1e-8,
+                cc, conv_tol_energy=1e-9, conv_tol_amps=1e-8,
                 max_cycle=500,
                 verbose=logger.INFO,
                 amps=amps_guess)
@@ -226,6 +226,31 @@ def collect_table():
                 + '\n')
 
 
+def run_all():
+    """
+    Run all systems until we fail!
+    """
+    contents = os.listdir()
+    dirs = [elem for elem in sorted(contents) if isdir(elem)]
+
+    for dirname in dirs:
+        run_dir(dirname)
+
+    collect_table()
+
+
+def run_dir():
+
+    # Run RHF
+    build_rhf(wd)
+
+    # Run RCCSD
+    run_cc_ref(wd)
+
+    # Run RCCSD-CPD
+    run_cc_cpd(wd)
+
+
 if __name__ == '__main__':
     if (len(sys.argv) != 2 or not isdir(sys.argv[1])):
         raise ValueError('usage: run_system.py folder')
@@ -233,8 +258,4 @@ if __name__ == '__main__':
     wd = wd.rstrip('/') + '/'  # Make sure we have the workdir
     # with the trailing slash
 
-    # Run RHF
-    build_rhf(wd)
-
-    # Run RCCSD
-    run_cc_ref(wd)
+    run_dir(wd)
