@@ -1,4 +1,4 @@
-#!/projects/guscus/apps-python/python3/3.6.2/inst/bin/python3.6
+#!/home/ilias/.local/bin/python3.6
 """
 These scripts are for running molecular systems
 with RCCSD-CPD
@@ -124,12 +124,13 @@ def run_cc_cpd(workdir):
     mol.basis = BASIS
     mol.build()
 
-    nbasis = mol.nao_nr()
+    # nbasis = mol.nao_nr()
 
     rhf = scf.density_fit(scf.RHF(mol))
     rhf.max_cycle = 1
     rhf.scf()
 
+    nbasis_ri = rhf.with_df.get_naoaux()
     # Get CCSD results to generate initial guess
 
     with open(workdir + 'ccsd_results.p', 'rb') as fp:
@@ -141,7 +142,7 @@ def run_cc_cpd(workdir):
     from tcc.tensors import Tensors
     from tcc.cpd import ncpd_initialize, als_dense
 
-    ranks_t = [el * nbasis for el in RANKS_T_FACTOR]
+    ranks_t = [int(el * nbasis_ri) for el in RANKS_T_FACTOR]
 
     energies = []
     deltas = []
@@ -164,11 +165,13 @@ def run_cc_cpd(workdir):
                                  t2=Tensors(zip(t2names, t2x)))
 
             converged, energy, amps = classic_solver(
-                cc, conv_tol_energy=1e-9, conv_tol_amps=1e-8,
+                cc, conv_tol_energy=1e-6, conv_tol_amps=1e-6,
                 max_cycle=500,
                 verbose=logger.INFO,
                 amps=amps_guess)
 
+            if not converged:
+                energy = np.nan
             ccsd_results = [energy, amps]
             with open(workdir +
                       'ccsd_results_rank_{}.p'.format(rank), 'wb') as fp:
@@ -239,7 +242,7 @@ def run_all():
     collect_table()
 
 
-def run_dir():
+def run_dir(wd):
 
     # Run RHF
     build_rhf(wd)
@@ -257,5 +260,4 @@ if __name__ == '__main__':
     wd = sys.argv[1]
     wd = wd.rstrip('/') + '/'  # Make sure we have the workdir
     # with the trailing slash
-
     run_dir(wd)
