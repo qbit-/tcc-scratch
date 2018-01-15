@@ -204,7 +204,7 @@ def run_cc_cpd(workdir):
 
 
 def calculate_residuals(workdir):
-    print('Running CC-CPD')
+    print('Running CC-CPD residuals')
 
     # Restore RHF object
     with open(workdir + 'rhf_results.p', 'rb') as fp:
@@ -236,7 +236,6 @@ def calculate_residuals(workdir):
     norms_t2 = []
 
     for idxr, rank in enumerate(ranks_t):
-        tim = time.process_time()
         if isfile(
                 workdir +
                 'ccsd_results_rank_{}.p'.format(rank)):
@@ -253,13 +252,13 @@ def calculate_residuals(workdir):
             res = cc.calc_residuals(ham, amps)
 
             # residuals
-            res_full = Tensors(
-                t1=res.t1,
-                t2=ncpd_rebuild([res.t2.xlam, res.t2.x1, res.t2.x2,
-                                 res.t2.x3, res.t2.x4])
-            )
+            # res_full = Tensors(
+            #    t1=res.t1,
+            #    t2=ncpd_rebuild([res.t2.xlam, res.t2.x1, res.t2.x2,
+            #                     res.t2.x3, res.t2.x4])
+            # )
 
-            norms = res_full.map(np.linalg.norm)
+            norms = res.map(np.linalg.norm)
 
         else:
             raise FileNotFoundError(
@@ -324,6 +323,7 @@ def run_all():
     for dirname in dirs:
         print('Working on: {}'.format(dirname))
         run_dir(dirname + '/')
+        calculate_residuals(dirname + '/')
 
     collect_table()
 
@@ -346,4 +346,5 @@ if __name__ == '__main__':
     wd = sys.argv[1]
     wd = wd.rstrip('/') + '/'  # Make sure we have the workdir
     # with the trailing slash
-    run_dir(wd)
+    # run_dir(wd)
+    run_all()
