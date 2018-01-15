@@ -298,18 +298,40 @@ def collect_table():
         if isfile(wd + 'RCCSD_CPD.txt'):
             ranks, energies, deltas = np.loadtxt(
                 wd + 'RCCSD_CPD.txt', unpack=True)
-            results.append((subdir, energies, deltas))
         else:
-            results.append((subdir,
-                            [np.nan, ] * row_len, [np.nan, ] * row_len))
+            energies = [np.nan, ] * row_len
+            deltas = [np.nan, ] * row_len
+        if isfile(wd + 'RCCSD_CPD_RES.txt'):
+            ranks, res_t1, res_t2 = np.loadtxt(
+                wd + 'RCCSD_CPD_RES.txt', unpack=True)
+        else:
+            res_t1 = [np.nan, ] * row_len
+            res_t2 = [np.nan, ] * row_len
+
+        if isfile(wd + 'RCCSD.txt') and isfile(wd + 'RHF.txt'):
+            energy_ref = (
+                float(np.loadtxt(
+                    wd + 'RCCSD.txt'))
+                + float(np.loadtxt(
+                    wd + 'RHF.txt'))
+                )
+        else:
+            energy_ref = np.nan
+        results.append((subdir, energy_ref, energies, deltas, res_t2))
     with open('RESULTS.txt', 'w') as fp:
-        fp.write('System & '
+        fp.write('System & Energy, H & '
+                 + ' & '.join('{:.1f}*N'.format(rr) for rr in RANKS_T_FACTOR)
+                 + ' & '
                  + ' & '.join('{:.1f}*N'.format(rr) for rr in RANKS_T_FACTOR)
                  + '\n')
         for res in results:
             fp.write(
                 '{} & '.format(res[0])
-                + ' & '.join('{:.3f}'.format(ee * 1000) for ee in res[2])
+                + '{:.3f}'.format(res[1])
+                + ' & '
+                + ' & '.join('{:.3f}'.format(ee * 1000) for ee in res[3])
+                + ' & '
+                + ' & '.join('{:.3f}'.format(ee) for ee in res[4])
                 + '\n')
 
 
@@ -347,4 +369,5 @@ if __name__ == '__main__':
     wd = wd.rstrip('/') + '/'  # Make sure we have the workdir
     # with the trailing slash
     # run_dir(wd)
-    run_all()
+    # run_all()
+    collect_table()
